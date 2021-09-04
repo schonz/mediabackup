@@ -37,14 +37,17 @@ class AwsS3Uploader:
         self.aws_profile = aws_profile
 
     def upload_file(self, file_path, dest_path):
+        isSuccess = False
+
         # Check file size and convert to MiB
         file_size = get_fileSize(file_path)
         # Check if multipart
         if file_size > self.multipart_limit_size:
-            self.__upload_multiPart_custom(file_path, dest_path, chunk_size_mib=100)
+            isSuccess = self.__upload_multiPart_custom(file_path, dest_path, chunk_size_mib=100)
         else:
-            self.__upload_singlePart(file_path, dest_path)
-        # Wait for thread to finish
+            isSuccess = self.__upload_singlePart(file_path, dest_path)
+        # TODO Wait for threads to finish
+        return isSuccess
     
     def validate_file(self, dest_path, md5):
         etag = self.__get_etag(dest_path)
@@ -305,16 +308,24 @@ def get_awsUploader(args):
     if args.awsprofile is not None:
         return AwsS3Uploader(aws_profile=args.awsprofile)
     else:
-        return AwsS3Uploader(multipart_limit_size_mib=100)
+        return AwsS3Uploader(multipart_limit_size_mib=512)
 
 
 def validate_local(origin_path, dest_path):
-    # == Checks ==
-    # ensure origin and dest exist
+    # == Check File Sizes ==
     # ensure file sizes are the same
-    # == Validate origin ==
-    # == Validate dest ==
-    pass
+    origin_size = get_fileSize(origin_path)
+    dest_size = get_fileSize(dest_path)
+    if origin_size != dest_size:
+        return False
+    
+    # == Check Md5 ==
+    origin_md5 = get_md5(origin_path)
+    dest_md5 = get_md5(dest_path)
+    if origin_md5 != dest_md5:
+        return False
+    
+    return True
 
 
 def move_local(origin_path, dest_path):
@@ -339,6 +350,7 @@ if __name__ == '__main__':
         # -- local or AWS destination --
         if 's3' in args.destpath:
             uploader = get_awsUploader(args)
+            # TODO if etag not present make sure file is < 5GB
             if args.etag is not None:  # validate multi
                 uploader.validate_file(args.destpath, args.etag)
             else:  # validate single
@@ -348,7 +360,10 @@ if __name__ == '__main__':
                 else:
                     print('Invalid')
         else:  # local operation
-            validate_local(args.origpath, args.destpath)
+            if validate_local(args.origpath, args.destpath):
+                print('Valid, Files match')
+            else:
+                print('Invalid')
     else:
         # -- isFile or isFolder? --
         # if folder create 7z archive
